@@ -1,6 +1,14 @@
 const { parseReminderIntent, generateConfirmationMessage } = require('../services/aiService');
 const { createReminder } = require('../services/reminderService');
 const { sendMessage } = require('../services/evolutionService');
+require('dotenv').config();
+
+// Lista de números autorizados (separados por vírgula no .env)
+// Formato: 5567996543700 (com DDI + DDD + número)
+const ALLOWED_PHONES = (process.env.ALLOWED_PHONES || '')
+  .split(',')
+  .map(n => n.trim())
+  .filter(Boolean);
 
 /**
  * Recebe o webhook da Evolution API e processa a mensagem
@@ -31,6 +39,12 @@ async function handleWebhook(req, res) {
     if (!phone || !text.trim()) return;
 
     console.log(`[Webhook] Mensagem de ${phone}: "${text}"`);
+
+    // ── Whitelist de números autorizados ──
+    if (ALLOWED_PHONES.length > 0 && !ALLOWED_PHONES.includes(phone)) {
+      console.log(`[Webhook] 🚫 Número ${phone} não autorizado. Ignorando.`);
+      return;
+    }
 
     // ── Interpreta com IA ──
     const intent = await parseReminderIntent(text);
