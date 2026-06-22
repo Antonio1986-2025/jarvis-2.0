@@ -20,23 +20,31 @@ async function handleWebhook(req, res) {
   try {
     const body = req.body;
 
-    // ── Filtra apenas mensagens recebidas (não as enviadas pelo bot) ──
-    const event = body?.event;
+    // ── Log para debug (mostra TUDO que chega) ──
+    console.log('[Webhook] >>> Evento recebido:', body?.event);
+
+    // ── Filtra apenas mensagens recebidas ──
+    // Evolution v2 envia "messages.upsert"; v1 envia "MESSAGES_UPSERT"
+    const event = (body?.event || '').toLowerCase().replace('_', '.');
     if (event !== 'messages.upsert') return;
 
-    const message = body?.data?.messages?.[0];
-    if (!message) return;
+    // ── Estrutura Evolution v2: data é o objeto da mensagem direto ──
+    const data = body?.data;
+    if (!data) return;
 
     // Ignora mensagens enviadas pelo próprio bot
-    if (message.key?.fromMe) return;
+    if (data.key?.fromMe) return;
 
     // Extrai número e texto
-    const phone = message.key?.remoteJid?.replace('@s.whatsapp.net', '');
-    const text  = message.message?.conversation
-               || message.message?.extendedTextMessage?.text
+    const phone = data.key?.remoteJid?.replace('@s.whatsapp.net', '');
+    const text  = data.message?.conversation
+               || data.message?.extendedTextMessage?.text
                || '';
 
-    if (!phone || !text.trim()) return;
+    if (!phone || !text.trim()) {
+      console.log('[Webhook] Mensagem sem texto, ignorando');
+      return;
+    }
 
     console.log(`[Webhook] Mensagem de ${phone}: "${text}"`);
 
