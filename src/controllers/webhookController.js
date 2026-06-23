@@ -1,10 +1,14 @@
-const { parseReminderIntent, generateConfirmationMessage } = require('../services/aiService');
+const {
+  parseReminderIntent,
+  generateConfirmationMessage,
+  transcribeAudio,
+  analyzeImageWithCaption,
+} = require('../services/aiService');
 const { createReminder } = require('../services/reminderService');
-const { sendMessage } = require('../services/evolutionService');
+const { sendMessage, getMediaBase64 } = require('../services/evolutionService');
 require('dotenv').config();
 
-// Lista de números autorizados (separados por vírgula no .env)
-// Formato: 5567996543700 (com DDI + DDD + número)
+// Whitelist de números autorizados (separados por vírgula no .env)
 const ALLOWED_PHONES = (process.env.ALLOWED_PHONES || '')
   .split(',')
   .map(n => n.trim())
@@ -19,46 +23,75 @@ async function handleWebhook(req, res) {
 
   try {
     const body = req.body;
-
-    // ── Log para debug (mostra TUDO que chega) ──
     console.log('[Webhook] >>> Evento recebido:', body?.event);
 
-    // ── Filtra apenas mensagens recebidas ──
-    // Evolution v2 envia "messages.upsert"; v1 envia "MESSAGES_UPSERT"
+    // Filtra apenas mensagens recebidas
     const event = (body?.event || '').toLowerCase().replace('_', '.');
     if (event !== 'messages.upsert') return;
 
-    // ── Estrutura Evolution v2: data é o objeto da mensagem direto ──
     const data = body?.data;
     if (!data) return;
 
     // Ignora mensagens enviadas pelo próprio bot
     if (data.key?.fromMe) return;
 
-    // Extrai número e texto
-    const phone = data.key?.remoteJid?.replace('@s.whatsapp.net', '');
-    const text  = data.message?.conversation
-               || data.message?.extendedTextMessage?.text
-               || '';
-
-    if (!phone || !text.trim()) {
-      console.log('[Webhook] Mensagem sem texto, ignorando');
+    // Ignora mensagens de grupos (qualquer @g.us)
+    const remoteJid = data.key?.remoteJid || '';
+    if (remoteJid.endsWith('@g.us')) {
+      console.log('[Webhook] Mensagem de grupo, ignorando');
       return;
     }
 
-    console.log(`[Webhook] Mensagem de ${phone}: "${text}"`);
+    const phone = remoteJid.replace('@s.whatsapp.net', '');
+    if (!phone) return;
 
-    // ── Whitelist de números autorizados ──
+    // ── Whitelist (antes de qualquer processamento custoso) ──
     if (ALLOWED_PHONES.length > 0 && !ALLOWED_PHONES.includes(phone)) {
       console.log(`[Webhook] 🚫 Número ${phone} não autorizado. Ignorando.`);
       return;
     }
 
+    // ── Detecta o tipo de mensagem e extrai o texto ──
+    const msg = data.message || {};
+    let userText = '';
+
+    if (msg.conversation) {
+      // Texto puro
+      userText = msg.conversation;
+      console.log(`[Webhook] 📝 Texto de ${phone}: "${userText}"`);
+    } else if (msg.extendedTextMessage?.text) {
+      // Texto com formatação ou resposta
+      userText = msg.extendedTextMessage.text;
+      console.log(`[Webhook] 📝 Texto de ${phone}: "${userText}"`);
+    } else if (msg.audioMessage || msg.pttMessage) {
+      // ── Áudio ──
+      console.log(`[Webhook] 🎙️  Áudio recebido de ${phone}, baixando...`);
+      const { base64, mimetype } = await getMediaBase64(data);
+      const buffer = Buffer.from(base64, 'base64');
+      console.log('[Webhook] Transcrevendo com Whisper...');
+      userText = await transcribeAudio(buffer, mimetype);
+      console.log(`[Webhook] 🎙️  Transcrição: "${userText}"`);
+      // Confirma a transcrição para o usuário
+      await sendMessage(phone, `🎙️ _Entendi: "${userText}"_`);
+    } else if (msg.imageMessage) {
+      // ── Imagem ──
+      console.log(`[Webhook] 🖼️  Imagem recebida de ${phone}, baixando...`);
+      const { base64, mimetype } = await getMediaBase64(data);
+      const caption = msg.imageMessage.caption || '';
+      console.log('[Webhook] Analisando imagem com GPT-4o Vision...');
+      userText = await analyzeImageWithCaption(base64, mimetype, caption);
+      console.log(`[Webhook] 🖼️  Conteúdo extraído: "${userText.slice(0, 200)}..."`);
+    } else {
+      console.log('[Webhook] Tipo de mensagem não suportado, ignorando');
+      return;
+    }
+
+    if (!userText.trim()) return;
+
     // ── Interpreta com IA ──
-    const intent = await parseReminderIntent(text);
+    const intent = await parseReminderIntent(userText);
 
     if (!intent.is_reminder) {
-      // Por enquanto, só processa lembretes
       await sendMessage(
         phone,
         '🤖 *JARVIS aqui.*\nNo momento só processo lembretes. Diga algo como:\n"Jarvis me lembre de tomar DIPIRONA em 6 em 6 horas por 7 dias"'
@@ -76,7 +109,7 @@ async function handleWebhook(req, res) {
       advance_minutes:  intent.advance_minutes || 0,
     });
 
-    // ── Confirma para o usuário ──
+    // ── Confirma ──
     const confirmation = await generateConfirmationMessage(
       intent.label,
       intent.first_fire_at,
@@ -88,6 +121,7 @@ async function handleWebhook(req, res) {
     await sendMessage(phone, confirmation);
   } catch (err) {
     console.error('[Webhook] Erro ao processar mensagem:', err.message);
+    console.error(err.stack);
   }
 }
 

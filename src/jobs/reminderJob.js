@@ -3,7 +3,7 @@ const { getDueReminders, scheduleNextOrDeactivate } = require('../services/remin
 const { sendMessage } = require('../services/evolutionService');
 require('dotenv').config();
 
-const TIMEZONE = process.env.TIMEZONE || 'America/Sao_Paulo';
+const TIMEZONE = process.env.TIMEZONE || 'America/Campo_Grande';
 
 /**
  * Job que roda a cada minuto e verifica lembretes a disparar
