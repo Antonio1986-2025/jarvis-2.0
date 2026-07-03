@@ -1,3 +1,4 @@
+const deepseek = require('../config/deepseek');
 const openai = require('../config/openai');
 const { toFile } = require('openai/uploads');
 require('dotenv').config();
@@ -35,72 +36,122 @@ function nowInTimezone() {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}${offsetStr}`;
 }
 
+const CATEGORIES_LIST = [
+  'salario', 'freelance', 'investimentos', 'outras_receitas',
+  'alimentacao', 'transporte', 'saude', 'lazer', 'moradia',
+  'utilidades', 'educacao', 'assinaturas', 'outros',
+];
+
 /**
- * Usa GPT-4o para interpretar uma mensagem em linguagem natural
- * e extrair os dados do lembrete.
+ * Interpreta a intenção do usuário: lembrete, transação financeira ou nenhum.
  */
-async function parseReminderIntent(userMessage) {
+async function parseIntent(userMessage) {
   const now = nowInTimezone();
+  const categories = CATEGORIES_LIST.join(', ');
 
   const systemPrompt = `
 Você é o JARVIS, assistente pessoal via WhatsApp. Agora é ${now} (fuso ${TIMEZONE}).
 
-Quando o usuário pedir um lembrete, extraia as informações e responda SOMENTE com JSON válido neste formato:
+Detecte a intenção do usuário e responda SOMENTE com JSON válido. NUNCA adicione texto fora do JSON.
+
+### 1) LEMBRETE
+Formato:
 {
-  "is_reminder": true,
+  "type": "reminder",
   "label": "descrição do lembrete",
   "first_fire_at": "ISO 8601 com offset (ex: 2026-06-22T20:19:00-04:00)",
   "interval_minutes": null ou número inteiro,
   "end_at": null ou "ISO 8601 com offset",
   "advance_minutes": 0
 }
-
-⚠️ REGRAS DE HORÁRIO (MUITO IMPORTANTE):
+Regras de horário:
 - TODOS os horários DEVEM estar em ISO 8601 com offset do fuso ${TIMEZONE}.
-- Use o MESMO offset que aparece no "agora" acima.
-- Exemplos válidos: "2026-06-22T20:19:00-04:00", "2026-06-23T15:00:00-04:00"
-- Calcule horários relativos partindo SEMPRE de "agora" (${now}).
-- "daqui 2 minutos" = agora + 2 minutos. NUNCA invente outro horário.
+- Use o MESMO offset do "agora" acima.
+- Exemplos: "2026-06-22T20:19:00-04:00"
+- Calcule horários relativos partindo de "agora" (${now}).
+- "interval_minutes" é repetição em minutos (null se único).
+- "end_at" é fim da repetição (null se único).
+- "advance_minutes" é antecedência em minutos (padrão 0).
 
-Outras regras:
-- "interval_minutes" é o intervalo de repetição em minutos (null se for único).
-- "end_at" é quando o lembrete para de repetir (null se for único).
-- "advance_minutes" é quantos minutos ANTES do horário avisar (padrão 0).
-- Se NÃO for pedido de lembrete, retorne: { "is_reminder": false }
-- NUNCA adicione texto fora do JSON.
-
-Exemplo: usuário diz "me lembre de tomar dipirona a cada 2 minutos por 6 minutos" e agora é "2026-06-22T20:17:00-04:00":
+### 2) TRANSAÇÃO FINANCEIRA
+Quando o usuário relatar um gasto, receita, pagamento, depósito etc.
+Formato:
 {
-  "is_reminder": true,
-  "label": "Tomar DIPIRONA 💊",
-  "first_fire_at": "2026-06-22T20:19:00-04:00",
-  "interval_minutes": 2,
-  "end_at": "2026-06-22T20:23:00-04:00",
-  "advance_minutes": 0
+  "type": "finance",
+  "action": "create",
+  "transaction_type": "income" ou "expense",
+  "description": "descrição curta do que foi",
+  "amount": número (sempre positivo),
+  "category": "uma das categorias válidas"
 }
+Categorias válidas para "category": ${categories}
+Mapeamento semântico:
+- "salario", "salário", "pagamento", "holerite" → salario
+- "freela", "freelance", "bico", "extra" → freelance
+- "investimento", "dividendo", "juros" → investimentos
+- "comida", "mercado", "restaurante", "almoço", "jantar", "lanche", "pizza" → alimentacao
+- "uber", "taxi", "ônibus", "gasolina", "combustível", "pedágio" → transporte
+- "médico", "farmácia", "remédio", "exame", "plano de saúde" → saude
+- "cinema", "ifood", "jogo", "festa", "netflix", "streaming" → lazer
+- "aluguel", "condomínio", "conta de luz", "água", "iptu" → moradia
+- "internet", "telefone", "gás" → utilidades
+- "curso", "faculdade", "escola", "material" → educacao
+- "spotify", "assinatura", "mensalidade" → assinaturas
+- Qualquer outro → outros
+
+### 3) NENHUM
+Se não for lembrete nem transação:
+{ "type": "none" }
+
+Exemplos:
+- "me lembre de tomar dipirona a cada 2 minutos por 6 minutos" + agora "2026-06-22T20:17:00-04:00":
+  { "type":"reminder","label":"Tomar DIPIRONA 💊","first_fire_at":"2026-06-22T20:19:00-04:00","interval_minutes":2,"end_at":"2026-06-22T20:23:00-04:00","advance_minutes":0 }
+
+- "gastei 45 conto no almoço":
+  { "type":"finance","action":"create","transaction_type":"expense","description":"Almoço","amount":45,"category":"alimentacao" }
+
+- "recebi 5 mil de salário":
+  { "type":"finance","action":"create","transaction_type":"income","description":"Salário","amount":5000,"category":"salario" }
 `;
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+  const response = await deepseek.chat.completions.create({
+    model: 'deepseek-chat',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: userMessage },
     ],
     temperature: 0,
-    response_format: { type: 'json_object' },
   });
 
   const raw = response.choices[0].message.content;
   try {
     return JSON.parse(raw);
   } catch {
-    console.error('[AI] Resposta inválida do GPT:', raw);
-    return { is_reminder: false };
+    console.error('[AI] Resposta inválida do DeepSeek:', raw);
+    return { type: 'none' };
   }
 }
 
 /**
- * Gera uma resposta de confirmação amigável para o usuário
+ * Wrapper compatível com o código antigo que espera parseReminderIntent
+ */
+async function parseReminderIntent(userMessage) {
+  const intent = await parseIntent(userMessage);
+  if (intent.type === 'reminder') {
+    return {
+      is_reminder: true,
+      label: intent.label,
+      first_fire_at: intent.first_fire_at,
+      interval_minutes: intent.interval_minutes,
+      end_at: intent.end_at,
+      advance_minutes: intent.advance_minutes || 0,
+    };
+  }
+  return { is_reminder: false };
+}
+
+/**
+ * Gera uma resposta de confirmação amigável para o usuário (lembrete)
  */
 async function generateConfirmationMessage(label, firstFireAt, intervalMinutes, endAt, advanceMinutes) {
   const fmt = (iso) =>
@@ -111,19 +162,40 @@ async function generateConfirmationMessage(label, firstFireAt, intervalMinutes, 
     });
 
   const prompt = `
-Você é o JARVIS. Confirme o lembrete de forma simpática e direta, em no máximo 3 linhas.
+Você é o JARVIS, assistente pessoal do Tony Stark — mas versão Brazil. Responda de forma descontraída, informal, como se fosse um amigo ajudando. Use gírias, emojis e seja direto. Máximo 3 linhas.
 Dados:
 - Lembrete: ${label}
 - Primeiro disparo: ${fmt(firstFireAt)}
 - Repetição: ${intervalMinutes ? `a cada ${intervalMinutes} minutos` : 'único'}
 - Fim: ${endAt ? fmt(endAt) : 'não se repete'}
 - Antecedência: ${advanceMinutes} minutos antes
-
-Use emoji. Fale como o JARVIS do Homem de Ferro.
 `;
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+  const response = await deepseek.chat.completions.create({
+    model: 'deepseek-chat',
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.7,
+  });
+
+  return response.choices[0].message.content;
+}
+
+/**
+ * Gera uma confirmação amigável para transação financeira
+ */
+async function generateFinanceConfirmation(data) {
+  const typeLabel = data.transaction_type === 'income' ? 'Receita' : 'Despesa';
+  const prompt = `
+Você é o JARVIS. Confirme o registro financeiro de forma descontraída, informal, máxima 2 linhas, com 1 emoji.
+Dados:
+- Tipo: ${typeLabel}
+- Descrição: ${data.description}
+- Valor: R$ ${data.amount}
+- Categoria: ${data.category}
+`;
+
+  const response = await deepseek.chat.completions.create({
+    model: 'deepseek-chat',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.7,
   });
@@ -159,8 +231,8 @@ async function analyzeImageWithCaption(base64, mimeType = 'image/jpeg', caption 
   const dataUrl = `data:${mimeType};base64,${base64}`;
 
   // Primeiro, descreve o conteúdo da imagem
-  const visionResp = await openai.chat.completions.create({
-    model: 'gpt-4o',
+  const visionResp = await deepseek.chat.completions.create({
+    model: 'deepseek-chat',
     messages: [
       {
         role: 'user',
@@ -188,8 +260,10 @@ async function analyzeImageWithCaption(base64, mimeType = 'image/jpeg', caption 
 }
 
 module.exports = {
+  parseIntent,
   parseReminderIntent,
   generateConfirmationMessage,
+  generateFinanceConfirmation,
   transcribeAudio,
   analyzeImageWithCaption,
 };
