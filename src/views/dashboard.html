@@ -55,6 +55,23 @@
   .status-badge.logged_out .dot,
   .status-badge.disconnected .dot { background: var(--red); }
   .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
+
+  .tabs {
+    display: flex; gap: 0; margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tabs button {
+    padding: 10px 24px; border: none; background: none;
+    color: var(--text-secondary); font-size: 14px; font-weight: 500;
+    cursor: pointer; border-bottom: 2px solid transparent;
+    transition: all .15s; display: flex; align-items: center; gap: 6px;
+  }
+  .tabs button:hover { color: var(--text); }
+  .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
   .card {
     background: var(--surface); border: 1px solid var(--border);
@@ -96,6 +113,8 @@
   .badge.active { background: rgba(63,185,80,.15); color: var(--green); }
   .badge.inactive { background: rgba(139,148,158,.15); color: var(--text-secondary); }
   .badge.interval { background: rgba(88,166,255,.15); color: var(--accent); }
+  .badge.income { background: rgba(63,185,80,.15); color: var(--green); }
+  .badge.expense { background: rgba(248,81,73,.15); color: var(--red); }
   .actions { display: flex; gap: 6px; }
   .actions button {
     padding: 4px 8px; border-radius: 4px; border: none;
@@ -116,6 +135,10 @@
     cursor: pointer; transition: all .15s;
   }
   .btn-secondary:hover { background: var(--surface-2); }
+  .btn-income { background: var(--green); color: #fff; }
+  .btn-income:hover { filter: brightness(1.15); }
+  .btn-expense { background: var(--red); color: #fff; }
+  .btn-expense:hover { filter: brightness(1.15); }
   .empty { text-align: center; padding: 40px 20px; color: var(--text-secondary); }
   .empty p { font-size: 14px; }
 
@@ -147,14 +170,16 @@
   }
   .form-group { margin-bottom: 16px; }
   .form-group label { display: block; font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .3px; }
-  .form-group input, .form-group select {
+  .form-group input, .form-group select, .form-group textarea {
     width: 100%; padding: 10px 12px; border-radius: var(--radius);
     border: 1px solid var(--border); background: var(--bg);
     color: var(--text); font-size: 14px; transition: border-color .15s;
+    font-family: inherit;
   }
-  .form-group input:focus, .form-group select:focus {
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
     outline: none; border-color: var(--accent);
   }
+  .form-group textarea { resize: vertical; min-height: 60px; }
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
   .toast {
@@ -183,6 +208,14 @@
   .loading { text-align: center; padding: 40px; color: var(--text-secondary); }
   .loading::after { content: '...'; animation: dots 1.5s infinite; }
   @keyframes dots { 0%,20% { content: '.'; } 40% { content: '..'; } 60%,100% { content: '...'; } }
+
+  .amount { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .amount.negative { color: var(--red); }
+  .amount.positive { color: var(--green); }
+  .category-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 6px;
+    font-size: 11px; background: var(--surface-2); color: var(--text-secondary);
+  }
 </style>
 </head>
 <body>
@@ -205,61 +238,95 @@
     ⚠️ O QR Code é para conexão via WhatsApp Web. Use o celular para escanear.
   </div>
 
-  <div class="two-col">
-    <div>
-      <div class="panel" id="qrPanel">
-        <div class="panel-header">
-          <h2>📱 WhatsApp</h2>
-        </div>
-        <div class="panel-body" id="qrPanelBody">
-          <div class="loading">Carregando</div>
+  <div class="tabs">
+    <button class="active" onclick="switchTab('lembretes')">📋 Lembretes</button>
+    <button onclick="switchTab('financeiro')">💰 Financeiro</button>
+  </div>
+
+  <div id="tab-lembretes" class="tab-content active">
+    <div class="two-col">
+      <div>
+        <div class="panel" id="qrPanel">
+          <div class="panel-header"><h2>📱 WhatsApp</h2></div>
+          <div class="panel-body" id="qrPanelBody"><div class="loading">Carregando</div></div>
         </div>
       </div>
+      <div><div class="cards" id="statsCards"></div></div>
     </div>
-
-    <div>
-      <div class="cards" id="statsCards"></div>
+    <div class="panel">
+      <div class="panel-header">
+        <h2>📋 Lembretes</h2>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <div class="filters" id="filterButtons">
+            <button data-status="all" class="active">Todos</button>
+            <button data-status="active">Ativos</button>
+            <button data-status="inactive">Inativos</button>
+          </div>
+          <button class="btn-primary" onclick="openCreateModal()">+ Novo</button>
+        </div>
+      </div>
+      <div class="panel-body" style="padding:0;overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Label</th>
+              <th>Telefone</th>
+              <th>Próximo disparo</th>
+              <th>Intervalo</th>
+              <th>Término</th>
+              <th>Status</th>
+              <th style="width:80px;"></th>
+            </tr>
+          </thead>
+          <tbody id="remindersBody"><tr><td colspan="7"><div class="loading">Carregando</div></td></tr></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
-  <div class="panel">
-    <div class="panel-header">
-      <h2>📋 Lembretes</h2>
-      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-        <div class="filters" id="filterButtons">
-          <button data-status="all" class="active">Todos</button>
-          <button data-status="active">Ativos</button>
-          <button data-status="inactive">Inativos</button>
+  <div id="tab-financeiro" class="tab-content">
+    <div class="cards" id="financeCards"></div>
+    <div class="panel">
+      <div class="panel-header">
+        <h2>💰 Transações</h2>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <div class="filters" id="financeFilters">
+            <button data-filter="all" class="active">Todas</button>
+            <button data-filter="income">Receitas</button>
+            <button data-filter="expense">Despesas</button>
+          </div>
+          <button class="btn-primary" onclick="openFinanceModal()">+ Nova</button>
         </div>
-        <button class="btn-primary" onclick="openCreateModal()">+ Novo</button>
+      </div>
+      <div class="panel-body" style="padding:0;overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Descrição</th>
+              <th>Tipo</th>
+              <th>Categoria</th>
+              <th>Valor</th>
+              <th>Data</th>
+              <th>Obs</th>
+              <th style="width:60px;"></th>
+            </tr>
+          </thead>
+          <tbody id="financeBody"><tr><td colspan="7"><div class="loading">Carregando</div></td></tr></tbody>
+        </table>
       </div>
     </div>
-    <div class="panel-body" style="padding:0;overflow-x:auto;">
-      <table>
-        <thead>
-          <tr>
-            <th>Label</th>
-            <th>Telefone</th>
-            <th>Próximo disparo</th>
-            <th>Intervalo</th>
-            <th>Término</th>
-            <th>Status</th>
-            <th style="width:80px;"></th>
-          </tr>
-        </thead>
-        <tbody id="remindersBody">
-          <tr><td colspan="7"><div class="loading">Carregando</div></td></tr>
-        </tbody>
-      </table>
+    <div class="panel" id="categoryPanel">
+      <div class="panel-header"><h2>📊 Por Categoria</h2></div>
+      <div class="panel-body" id="categoryBody"><div class="loading">Carregando</div></div>
     </div>
   </div>
 </div>
 
-<div class="modal-overlay" id="modal">
+<div class="modal-overlay" id="modalReminder">
   <div class="modal">
     <div class="modal-header">
-      <h3 id="modalTitle">Novo Lembrete</h3>
-      <button class="modal-close" onclick="closeModal()">&times;</button>
+      <h3 id="modalReminderTitle">Novo Lembrete</h3>
+      <button class="modal-close" onclick="closeModal('modalReminder')">&times;</button>
     </div>
     <div class="modal-body">
       <div class="form-group">
@@ -292,8 +359,68 @@
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
-      <button class="btn-primary" id="modalSaveBtn" onclick="saveReminder()">Salvar</button>
+      <button class="btn-secondary" onclick="closeModal('modalReminder')">Cancelar</button>
+      <button class="btn-primary" id="modalReminderSaveBtn" onclick="saveReminder()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalFinance">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalFinanceTitle">Nova Transação</h3>
+      <button class="modal-close" onclick="closeModal('modalFinance')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Tipo</label>
+        <select id="formFinanceType">
+          <option value="income">Receita</option>
+          <option value="expense">Despesa</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Descrição</label>
+        <input id="formFinanceDesc" placeholder="Ex: Salário" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Valor (R$)</label>
+          <input id="formFinanceAmount" type="number" step="0.01" min="0" placeholder="0,00" />
+        </div>
+        <div class="form-group">
+          <label>Categoria</label>
+          <select id="formFinanceCategory">
+            <option value="salario">Salário</option>
+            <option value="freelance">Freelance</option>
+            <option value="investimentos">Investimentos</option>
+            <option value="outras_receitas">Outras Receitas</option>
+            <option value="alimentacao">Alimentação</option>
+            <option value="transporte">Transporte</option>
+            <option value="saude">Saúde</option>
+            <option value="lazer">Lazer</option>
+            <option value="moradia">Moradia</option>
+            <option value="utilidades">Utilidades</option>
+            <option value="educacao">Educação</option>
+            <option value="assinaturas">Assinaturas</option>
+            <option value="outros">Outros</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Data</label>
+          <input id="formFinanceDate" type="datetime-local" />
+        </div>
+        <div class="form-group">
+          <label>Observações</label>
+          <input id="formFinanceNotes" placeholder="Opcional" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modalFinance')">Cancelar</button>
+      <button class="btn-primary" id="modalFinanceSaveBtn" onclick="saveFinance()">Salvar</button>
     </div>
   </div>
 </div>
@@ -303,8 +430,10 @@
 <script>
 const API = '/dashboard';
 
-let currentFilter = 'all';
-let editingId = null;
+let currentReminderFilter = 'all';
+let currentFinanceFilter = 'all';
+let editingReminderId = null;
+let editingFinanceId = null;
 
 async function fetchJSON(url, opts = {}) {
   const res = await fetch(url, {
@@ -325,10 +454,22 @@ function showToast(msg, type = 'success') {
   setTimeout(() => { t.classList.remove('show'); }, 3500);
 }
 
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 function formatDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
   return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDateShort(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function formatInterval(min) {
@@ -339,33 +480,45 @@ function formatInterval(min) {
   return m ? `${h}h${m}m` : `${h}h`;
 }
 
+function formatCurrency(value) {
+  return parseFloat(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function categoryLabel(cat) {
+  const labels = {
+    salario: 'Salário', freelance: 'Freelance', investimentos: 'Investimentos',
+    outras_receitas: 'Outras Receitas', alimentacao: 'Alimentação', transporte: 'Transporte',
+    saude: 'Saúde', lazer: 'Lazer', moradia: 'Moradia', utilidades: 'Utilidades',
+    educacao: 'Educação', assinaturas: 'Assinaturas', outros: 'Outros',
+  };
+  return labels[cat] || cat;
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.tabs button[onclick*="'${tab}'"]`).classList.add('active');
+  document.getElementById(`tab-${tab}`).classList.add('active');
+  if (tab === 'financeiro') {
+    loadFinanceCards();
+    loadFinances();
+    loadCategories();
+  }
+}
+
+// ==================== REMINDERS ====================
+
 async function loadStats() {
   try {
     const stats = await fetchJSON(`${API}/api/stats`);
     document.getElementById('statsCards').innerHTML = `
-      <div class="card">
-        <div class="card-icon">📝</div>
-        <div class="card-label">Total</div>
-        <div class="card-value">${stats.total}</div>
-      </div>
-      <div class="card">
-        <div class="card-icon">✅</div>
-        <div class="card-label">Ativos</div>
-        <div class="card-value" style="color:var(--green)">${stats.active}</div>
-      </div>
-      <div class="card">
-        <div class="card-icon">🔥</div>
-        <div class="card-label">Disparos hoje</div>
-        <div class="card-value" style="color:var(--orange)">${stats.today_count}</div>
-      </div>
-      <div class="card">
-        <div class="card-icon">⏳</div>
-        <div class="card-label">Pendentes</div>
-        <div class="card-value" style="color:${stats.pending > 0 ? 'var(--red)' : 'var(--text)'}">${stats.pending}</div>
-      </div>
+      <div class="card"><div class="card-icon">📝</div><div class="card-label">Total</div><div class="card-value">${stats.total}</div></div>
+      <div class="card"><div class="card-icon">✅</div><div class="card-label">Ativos</div><div class="card-value" style="color:var(--green)">${stats.active}</div></div>
+      <div class="card"><div class="card-icon">🔥</div><div class="card-label">Disparos hoje</div><div class="card-value" style="color:var(--orange)">${stats.today_count}</div></div>
+      <div class="card"><div class="card-icon">⏳</div><div class="card-label">Pendentes</div><div class="card-value" style="color:${stats.pending > 0 ? 'var(--red)' : 'var(--text)'}">${stats.pending}</div></div>
     `;
   } catch (e) {
-    document.getElementById('statsCards').innerHTML = `<div class="card"><div class="card-label">Erro ao carregar estatísticas</div></div>`;
+    document.getElementById('statsCards').innerHTML = `<div class="card"><div class="card-label">Erro ao carregar</div></div>`;
   }
 }
 
@@ -375,9 +528,7 @@ async function loadStatus() {
     const badge = document.getElementById('statusBadge');
     const text = document.getElementById('statusText');
     badge.className = `status-badge ${s.status}`;
-
     const qrBody = document.getElementById('qrPanelBody');
-
     switch (s.status) {
       case 'connected':
         text.textContent = 'Conectado ✓';
@@ -401,21 +552,17 @@ async function loadStatus() {
         qrBody.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-secondary);"><span style="font-size:32px;">📵</span><p style="margin-top:8px;">WhatsApp desconectado. O JARVIS tentará reconectar automaticamente.</p></div>`;
         document.getElementById('noMobileWarning').style.display = 'none';
     }
-  } catch (e) {
-    console.error('Status error:', e);
-  }
+  } catch (e) { console.error('Status error:', e); }
 }
 
 async function loadReminders() {
   try {
-    const reminders = await fetchJSON(`${API}/api/reminders?status=${currentFilter}`);
+    const reminders = await fetchJSON(`${API}/api/reminders?status=${currentReminderFilter}`);
     const tbody = document.getElementById('remindersBody');
-
     if (!reminders.length) {
       tbody.innerHTML = `<tr><td colspan="7"><div class="empty"><p>Nenhum lembrete encontrado</p></div></td></tr>`;
       return;
     }
-
     tbody.innerHTML = reminders.map(r => `
       <tr>
         <td style="font-weight:500;">${escapeHtml(r.label)}</td>
@@ -437,24 +584,12 @@ async function loadReminders() {
   }
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 async function toggleReminder(id, active) {
   try {
-    await fetchJSON(`${API}/api/reminders/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ active }),
-    });
+    await fetchJSON(`${API}/api/reminders/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) });
     showToast(active ? 'Lembrete ativado' : 'Lembrete desativado');
-    loadReminders();
-    loadStats();
-  } catch (e) {
-    showToast(e.message, 'error');
-  }
+    loadReminders(); loadStats();
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 async function deleteReminder(id) {
@@ -462,24 +597,17 @@ async function deleteReminder(id) {
   try {
     await fetchJSON(`${API}/api/reminders/${id}`, { method: 'DELETE' });
     showToast('Lembrete excluído');
-    loadReminders();
-    loadStats();
-  } catch (e) {
-    showToast(e.message, 'error');
-  }
+    loadReminders(); loadStats();
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 function openCreateModal() {
-  editingId = null;
-  document.getElementById('modalTitle').textContent = 'Novo Lembrete';
-  document.getElementById('formLabel').value = '';
-  document.getElementById('formPhone').value = '';
-  document.getElementById('formFirstFire').value = '';
+  editingReminderId = null;
+  document.getElementById('modalReminderTitle').textContent = 'Novo Lembrete';
+  ['formLabel','formPhone','formFirstFire','formInterval','formEndAt'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('formAdvance').value = '0';
-  document.getElementById('formInterval').value = '';
-  document.getElementById('formEndAt').value = '';
-  document.getElementById('modalSaveBtn').textContent = 'Salvar';
-  document.getElementById('modal').classList.add('open');
+  document.getElementById('modalReminderSaveBtn').textContent = 'Salvar';
+  document.getElementById('modalReminder').classList.add('open');
 }
 
 async function saveReminder() {
@@ -487,57 +615,176 @@ async function saveReminder() {
   const phone = document.getElementById('formPhone').value.trim() || 'dashboard';
   const first_fire_at = document.getElementById('formFirstFire').value;
   const advance_minutes = parseInt(document.getElementById('formAdvance').value) || 0;
-  const intervalInput = document.getElementById('formInterval').value;
-  const interval_minutes = intervalInput ? parseInt(intervalInput) : null;
-  const endAtValue = document.getElementById('formEndAt').value;
-  const end_at = endAtValue ? new Date(endAtValue).toISOString() : null;
-
+  const interval_minutes = document.getElementById('formInterval').value ? parseInt(document.getElementById('formInterval').value) : null;
+  const end_at = document.getElementById('formEndAt').value ? new Date(document.getElementById('formEndAt').value).toISOString() : null;
   if (!label) return showToast('Descrição é obrigatória', 'error');
   if (!first_fire_at) return showToast('Data do primeiro disparo é obrigatória', 'error');
-
   const firstFireISO = new Date(first_fire_at).toISOString();
-
   try {
-    if (editingId) {
-      await fetchJSON(`${API}/api/reminders/${editingId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ label, phone, next_fire_at: firstFireISO, interval_minutes, end_at, advance_minutes }),
-      });
+    if (editingReminderId) {
+      await fetchJSON(`${API}/api/reminders/${editingReminderId}`, { method: 'PATCH', body: JSON.stringify({ label, phone, next_fire_at: firstFireISO, interval_minutes, end_at, advance_minutes }) });
       showToast('Lembrete atualizado');
     } else {
-      await fetchJSON(`${API}/api/reminders`, {
-        method: 'POST',
-        body: JSON.stringify({ label, phone, first_fire_at: firstFireISO, interval_minutes, end_at, advance_minutes }),
-      });
+      await fetchJSON(`${API}/api/reminders`, { method: 'POST', body: JSON.stringify({ label, phone, first_fire_at: firstFireISO, interval_minutes, end_at, advance_minutes }) });
       showToast('Lembrete criado');
     }
-    closeModal();
-    loadReminders();
-    loadStats();
+    closeModal('modalReminder');
+    loadReminders(); loadStats();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+// ==================== FINANCE ====================
+
+async function loadFinanceCards() {
+  try {
+    const s = await fetchJSON(`${API}/api/finances/summary`);
+    document.getElementById('financeCards').innerHTML = `
+      <div class="card"><div class="card-icon">📈</div><div class="card-label">Receitas</div><div class="card-value" style="color:var(--green)">${formatCurrency(s.total_income)}</div></div>
+      <div class="card"><div class="card-icon">📉</div><div class="card-label">Despesas</div><div class="card-value" style="color:var(--red)">${formatCurrency(s.total_expense)}</div></div>
+      <div class="card"><div class="card-icon">💰</div><div class="card-label">Saldo</div><div class="card-value" style="color:${s.balance >= 0 ? 'var(--green)' : 'var(--red)'}">${formatCurrency(s.balance)}</div></div>
+      <div class="card"><div class="card-icon">📄</div><div class="card-label">Transações</div><div class="card-value">${s.transaction_count}</div></div>
+    `;
   } catch (e) {
-    showToast(e.message, 'error');
+    document.getElementById('financeCards').innerHTML = `<div class="card"><div class="card-label">Erro ao carregar</div></div>`;
   }
 }
 
-function closeModal() {
-  document.getElementById('modal').classList.remove('open');
+async function loadFinances() {
+  try {
+    const params = currentFinanceFilter !== 'all' ? `?type=${currentFinanceFilter}` : '';
+    const txs = await fetchJSON(`${API}/api/finances${params}`);
+    const tbody = document.getElementById('financeBody');
+    if (!txs.length) {
+      tbody.innerHTML = `<tr><td colspan="7"><div class="empty"><p>Nenhuma transação encontrada</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = txs.map(t => `
+      <tr>
+        <td style="font-weight:500;">${escapeHtml(t.description)}</td>
+        <td><span class="badge ${t.type}">${t.type === 'income' ? 'Receita' : 'Despesa'}</span></td>
+        <td><span class="category-badge">${categoryLabel(t.category)}</span></td>
+        <td class="amount ${t.type === 'income' ? 'positive' : 'negative'}">${t.type === 'income' ? '+' : '-'}${formatCurrency(t.amount)}</td>
+        <td style="color:var(--text-secondary);font-size:12px;">${formatDateShort(t.transaction_date)}</td>
+        <td style="color:var(--text-secondary);font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.notes ? escapeHtml(t.notes) : '—'}</td>
+        <td>
+          <div class="actions">
+            <button class="danger" onclick="deleteFinance('${t.id}')" title="Excluir">🗑️</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    document.getElementById('financeBody').innerHTML = `<tr><td colspan="7"><div class="empty"><p>Erro ao carregar</p></div></td></tr>`;
+  }
 }
 
-document.getElementById('modal').addEventListener('click', (e) => {
-  if (e.target === document.getElementById('modal')) closeModal();
-});
+async function loadCategories() {
+  try {
+    const s = await fetchJSON(`${API}/api/finances/summary`);
+    const bd = s.breakdown || [];
+    if (!bd.length) {
+      document.getElementById('categoryBody').innerHTML = `<div class="empty"><p>Nenhuma transação para categorizar</p></div>`;
+      return;
+    }
+    const max = Math.max(...bd.map(c => c.amount));
+    document.getElementById('categoryBody').innerHTML = bd.map(c => `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+        <span style="width:140px;font-size:13px;color:var(--text-secondary);">${categoryLabel(c.category)}</span>
+        <div style="flex:1;height:24px;background:var(--bg);border-radius:4px;overflow:hidden;">
+          <div style="height:100%;width:${(c.amount / max) * 100}%;background:linear-gradient(90deg,var(--accent),var(--purple));border-radius:4px;transition:width .3s;"></div>
+        </div>
+        <span style="width:100px;text-align:right;font-size:13px;font-weight:600;">${formatCurrency(c.amount)}</span>
+      </div>
+    `).join('');
+  } catch (e) {
+    document.getElementById('categoryBody').innerHTML = `<div class="empty"><p>Erro ao carregar</p></div>`;
+  }
+}
+
+async function deleteFinance(id) {
+  if (!confirm('Tem certeza que deseja excluir esta transação?')) return;
+  try {
+    await fetchJSON(`${API}/api/finances/${id}`, { method: 'DELETE' });
+    showToast('Transação excluída');
+    loadFinanceCards(); loadFinances(); loadCategories();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+function openFinanceModal(data) {
+  editingFinanceId = data?.id || null;
+  document.getElementById('modalFinanceTitle').textContent = editingFinanceId ? 'Editar Transação' : 'Nova Transação';
+  document.getElementById('formFinanceType').value = data?.type || 'income';
+  document.getElementById('formFinanceDesc').value = data?.description || '';
+  document.getElementById('formFinanceAmount').value = data?.amount || '';
+  document.getElementById('formFinanceCategory').value = data?.category || 'outros';
+  document.getElementById('formFinanceDate').value = data?.transaction_date ? new Date(data.transaction_date).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16);
+  document.getElementById('formFinanceNotes').value = data?.notes || '';
+  document.getElementById('modalFinanceSaveBtn').textContent = editingFinanceId ? 'Atualizar' : 'Salvar';
+  document.getElementById('modalFinance').classList.add('open');
+}
+
+async function saveFinance() {
+  const type = document.getElementById('formFinanceType').value;
+  const description = document.getElementById('formFinanceDesc').value.trim();
+  const amount = document.getElementById('formFinanceAmount').value;
+  const category = document.getElementById('formFinanceCategory').value;
+  const transaction_date = document.getElementById('formFinanceDate').value;
+  const notes = document.getElementById('formFinanceNotes').value.trim();
+
+  if (!description) return showToast('Descrição é obrigatória', 'error');
+  if (!amount || parseFloat(amount) <= 0) return showToast('Valor deve ser maior que zero', 'error');
+  if (!transaction_date) return showToast('Data é obrigatória', 'error');
+
+  const body = { description, amount: parseFloat(amount), type, category, transaction_date: new Date(transaction_date).toISOString(), notes };
+  try {
+    if (editingFinanceId) {
+      await fetchJSON(`${API}/api/finances/${editingFinanceId}`, { method: 'PATCH', body: JSON.stringify(body) });
+      showToast('Transação atualizada');
+    } else {
+      await fetchJSON(`${API}/api/finances`, { method: 'POST', body: JSON.stringify(body) });
+      showToast('Transação criada');
+    }
+    closeModal('modalFinance');
+    loadFinanceCards(); loadFinances(); loadCategories();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+// ==================== EVENTS ====================
 
 document.querySelectorAll('#filterButtons button').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#filterButtons button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    currentFilter = btn.dataset.status;
+    currentReminderFilter = btn.dataset.status;
     loadReminders();
   });
 });
 
+document.querySelectorAll('#financeFilters button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#financeFilters button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFinanceFilter = btn.dataset.filter;
+    loadFinances();
+  });
+});
+
+document.getElementById('modalReminder').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('modalReminder')) closeModal('modalReminder');
+});
+document.getElementById('modalFinance').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('modalFinance')) closeModal('modalFinance');
+});
+
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeModal();
+  if (e.key === 'Escape') {
+    closeModal('modalReminder');
+    closeModal('modalFinance');
+  }
 });
 
 async function loadAll() {

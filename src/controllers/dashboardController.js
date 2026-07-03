@@ -7,6 +7,14 @@ const {
   deleteReminder,
   getReminderStats,
 } = require('../services/reminderService');
+const {
+  listTransactions,
+  createTransaction,
+  updateTransaction,
+  deleteTransaction,
+  getFinanceStats,
+  getCategoryBreakdown,
+} = require('../services/financeService');
 const { getLastQR, getConnectionStatus } = require('../services/whatsappService');
 const supabase = require('../config/supabase');
 
@@ -87,6 +95,62 @@ async function getStats(_req, res) {
   }
 }
 
+async function getFinances(req, res) {
+  try {
+    const { type, category, start_date, end_date, limit, offset } = req.query;
+    const transactions = await listTransactions({
+      type, category,
+      startDate: start_date,
+      endDate: end_date,
+      limit: limit ? parseInt(limit) : 100,
+      offset: offset ? parseInt(offset) : 0,
+    });
+    res.json(transactions);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function postFinance(req, res) {
+  try {
+    const tx = await createTransaction(req.body);
+    res.status(201).json(tx);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}
+
+async function patchFinance(req, res) {
+  try {
+    const { id } = req.params;
+    const tx = await updateTransaction(id, req.body);
+    res.json(tx);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}
+
+async function removeFinance(req, res) {
+  try {
+    const { id } = req.params;
+    await deleteTransaction(id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function getFinanceSummary(req, res) {
+  try {
+    const { start_date, end_date } = req.query;
+    const stats = await getFinanceStats({ startDate: start_date, endDate: end_date });
+    const breakdown = await getCategoryBreakdown({ startDate: start_date, endDate: end_date });
+    res.json({ ...stats, breakdown });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 async function getLogs(_req, res) {
   try {
     const { data, error } = await supabase
@@ -110,5 +174,10 @@ module.exports = {
   patchReminder,
   removeReminder,
   getStats,
+  getFinances,
+  postFinance,
+  patchFinance,
+  removeFinance,
+  getFinanceSummary,
   getLogs,
 };

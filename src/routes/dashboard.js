@@ -8,6 +8,11 @@ const {
   patchReminder,
   removeReminder,
   getStats,
+  getFinances,
+  postFinance,
+  patchFinance,
+  removeFinance,
+  getFinanceSummary,
   getLogs,
 } = require('../controllers/dashboardController');
 
@@ -19,6 +24,13 @@ router.get('/api/reminders', getReminders);
 router.post('/api/reminders', postReminder);
 router.patch('/api/reminders/:id', patchReminder);
 router.delete('/api/reminders/:id', removeReminder);
+
+router.get('/api/finances', getFinances);
+router.post('/api/finances', postFinance);
+router.patch('/api/finances/:id', patchFinance);
+router.delete('/api/finances/:id', removeFinance);
+router.get('/api/finances/summary', getFinanceSummary);
+
 router.get('/api/logs', getLogs);
 
 module.exports = router;
