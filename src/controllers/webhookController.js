@@ -47,41 +47,61 @@ async function handleBaileysMessage(sock, msg) {
 
   if (!userText.trim()) return;
 
-  const intent = await parseIntent(userText);
+  let intent;
+  try {
+    intent = await parseIntent(userText);
+  } catch (err) {
+    console.error('[Webhook] Erro ao interpretar mensagem:', err.message);
+    await sendMessage(jid, '😬 Não entendi o que você quis dizer. Pode repetir?');
+    return;
+  }
 
   if (intent.type === 'reminder') {
-    await createReminder({
-      phone: jid,
-      label: intent.label,
-      first_fire_at: intent.first_fire_at,
-      interval_minutes: intent.interval_minutes,
-      end_at: intent.end_at,
-      advance_minutes: intent.advance_minutes || 0,
-    });
+    try {
+      await createReminder({
+        phone: jid,
+        label: intent.label,
+        first_fire_at: intent.first_fire_at,
+        interval_minutes: intent.interval_minutes,
+        end_at: intent.end_at,
+        advance_minutes: intent.advance_minutes || 0,
+      });
 
-    const confirmation = await generateConfirmationMessage(
-      intent.label,
-      intent.first_fire_at,
-      intent.interval_minutes,
-      intent.end_at,
-      intent.advance_minutes || 0
-    );
+      const confirmation = await generateConfirmationMessage(
+        intent.label,
+        intent.first_fire_at,
+        intent.interval_minutes,
+        intent.end_at,
+        intent.advance_minutes || 0
+      );
 
-    await sendMessage(jid, confirmation);
+      await sendMessage(jid, confirmation);
+    } catch (err) {
+      console.error('[Webhook] Erro ao criar lembrete:', err.message);
+      await sendMessage(jid, '😬 Não consegui criar o lembrete. Deu algum erro interno.');
+    }
     return;
   }
 
   if (intent.type === 'finance') {
-    await createTransaction({
-      phone: jid,
-      description: intent.description,
-      amount: intent.amount,
-      type: intent.transaction_type,
-      category: intent.category,
-    });
+    try {
+      await createTransaction({
+        phone: jid,
+        description: intent.description,
+        amount: intent.amount,
+        type: intent.transaction_type,
+        category: intent.category,
+      });
 
-    const confirmation = await generateFinanceConfirmation(intent);
-    await sendMessage(jid, confirmation);
+      const confirmation = await generateFinanceConfirmation(intent);
+      await sendMessage(jid, confirmation);
+    } catch (err) {
+      console.error('[Webhook] Erro ao registrar transação:', err.message);
+      await sendMessage(
+        jid,
+        '😬 Não consegui registrar a transação. Pode ser que a tabela de finanças ainda não exista no banco. Me avisa pro Tony configurar!'
+      );
+    }
     return;
   }
 
