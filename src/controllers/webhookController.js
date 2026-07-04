@@ -99,7 +99,7 @@ async function handleBaileysMessage(sock, msg) {
       console.error('[Webhook] Erro ao registrar transação:', err.message);
       await sendMessage(
         jid,
-        '😬 Não consegui registrar a transação. Pode ser que a tabela de finanças ainda não exista no banco. Me avisa pro Tony configurar!'
+        '😬 Não consegui registrar. A tabela de finanças ainda não existe no banco. Peça pro Tony acessar o Supabase SQL Editor e rodar: CREATE TABLE transactions...'
       );
     }
     return;

@@ -166,6 +166,47 @@ async function getLogs(_req, res) {
   }
 }
 
+const createTableSQL = `
+CREATE TABLE IF NOT EXISTS transactions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  phone TEXT NOT NULL DEFAULT 'dashboard',
+  description TEXT NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
+  category TEXT NOT NULL DEFAULT 'outros',
+  transaction_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  notes TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions (transaction_date);
+CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions (type);
+`;
+
+async function runMigrate(_req, res) {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    return res.json({
+      success: false,
+      message: 'DATABASE_URL não configurada. Adicione a connection string do Supabase nas variáveis do Railway.',
+      sql: createTableSQL,
+      supabase_sql_editor: 'https://supabase.com/dashboard/project/joyptemtydowkhopbbpa/sql/new',
+    });
+  }
+
+  try {
+    const { Client } = require('pg');
+    const client = new Client({ connectionString: dbUrl, connectionTimeoutMillis: 10000 });
+    await client.connect();
+    await client.query(createTableSQL);
+    await client.end();
+    console.log('[Migrate] Tabela transactions criada com sucesso!');
+    return res.json({ success: true, message: 'Tabela transactions criada com sucesso!' });
+  } catch (err) {
+    console.error('[Migrate] Erro ao criar tabela:', err.message);
+    return res.json({ success: false, message: err.message, sql: createTableSQL });
+  }
+}
+
 module.exports = {
   serveDashboard,
   getStatus,
@@ -180,4 +221,5 @@ module.exports = {
   removeFinance,
   getFinanceSummary,
   getLogs,
+  runMigrate,
 };

@@ -92,6 +92,7 @@ async function startWhatsApp(onMessageCallback) {
 
 async function sendMessage(phone, text) {
   const jid = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  console.log(`[WhatsApp] Enviando para ${jid}: "${text.slice(0, 60)}..."`);
   await sock.sendMessage(jid, { text });
 }
 

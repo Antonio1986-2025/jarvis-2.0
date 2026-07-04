@@ -14,6 +14,7 @@ const {
   removeFinance,
   getFinanceSummary,
   getLogs,
+  runMigrate,
 } = require('../controllers/dashboardController');
 
 router.get('/', serveDashboard);
@@ -32,5 +33,6 @@ router.delete('/api/finances/:id', removeFinance);
 router.get('/api/finances/summary', getFinanceSummary);
 
 router.get('/api/logs', getLogs);
+router.post('/api/migrate', runMigrate);
 
 module.exports = router;
